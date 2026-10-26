@@ -81,15 +81,21 @@ async def _get(client: httpx.AsyncClient, url: str) -> httpx.Response:
 
 
 def _decode(r: httpx.Response) -> str:
+    """Resmî Gazete sayfaları çoğunlukla windows-1254; başlık bilgisi güvenilmez.
+    Önce katı UTF-8 dene, olmazsa sayfadaki charset'i, o da yoksa windows-1254'ü kullan."""
     raw = r.content
-    enc = r.encoding
-    if not enc or enc.lower() in ("iso-8859-1", "ascii"):
-        m = re.search(rb"charset=['\"]?([\w-]+)", raw[:3000], re.I)
-        enc = m.group(1).decode() if m else "utf-8"
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    m = re.search(rb"charset=['\"]?([\w-]+)", raw[:4000], re.I)
+    enc = m.group(1).decode("ascii", "ignore").lower() if m else ""
+    if not enc or enc in ("utf-8", "utf8", "iso-8859-1", "latin-1", "ascii"):
+        enc = "windows-1254"
     try:
         return raw.decode(enc, errors="replace")
     except LookupError:
-        return raw.decode("utf-8", errors="replace")
+        return raw.decode("windows-1254", errors="replace")
 
 
 def _is_heading(text: str) -> bool:
@@ -196,6 +202,16 @@ def _pdf_text(data: bytes) -> tuple[str, int]:
     return "\n".join(parts), len(reader.pages)
 
 
+def _looks_garbage(text: str) -> bool:
+    """Gömülü yazı tipi eşlemesi olmayan PDF'lerde pypdf denetim karakterleri üretir."""
+    chars = [c for c in text if not c.isspace()]
+    if not chars:
+        return True
+    letters = sum(1 for c in chars if c.isalnum())
+    control = sum(1 for c in chars if ord(c) < 32 or 0xE000 <= ord(c) <= 0xF8FF or c == "\ufffd")
+    return letters / len(chars) < 0.55 or control / len(chars) > 0.05
+
+
 async def _doc_text(client, url: str) -> dict:
     url = _check_url(url)
     r = await _get(client, url)
@@ -204,8 +220,8 @@ async def _doc_text(client, url: str) -> dict:
     ctype = r.headers.get("content-type", "").lower()
     if url.lower().endswith(".pdf") or "pdf" in ctype:
         text, pages = await asyncio.to_thread(_pdf_text, r.content)
-        if len(text.strip()) < 40:
-            return {"url": url, "metin": "", "sayfa": pages, "uyari": "PDF'den metin çıkmadı (taranmış görüntü olabilir)"}
+        if len(text.strip()) < 40 or _looks_garbage(text):
+            return {"url": url, "metin": "", "sayfa": pages, "taranmis": True, "uyari": "Taranmış PDF: metin katmanı yok veya okunamıyor; OCR gerekir"}
         return {"url": url, "metin": text, "sayfa": pages}
     soup = BeautifulSoup(_decode(r), "html.parser")
     for s in soup(["script", "style", "noscript"]):
@@ -314,7 +330,7 @@ def register(mcp) -> None:
                             okunamayan.append({"baslik": it["baslik"], "url": it["url"], "neden": str(e)[:120]})
                             return
                         if doc.get("uyari"):
-                            okunamayan.append({"baslik": it["baslik"], "url": it["url"], "neden": doc["uyari"]})
+                            okunamayan.append({"baslik": it["baslik"], "url": it["url"], "bolum": it["bolum"], "taranmis": bool(doc.get("taranmis")), "neden": doc["uyari"]})
                         text = doc.get("metin", "")
                         for w in deep:
                             sn = _snippets(text, w)
@@ -340,4 +356,5 @@ def register(mcp) -> None:
             "metin_tarandi": bool(deep),
             "eslesmeler": list(hits.values()),
             "okunamayan": okunamayan,
+            "not": ("Taranmış PDF'ler sunucuda okunamaz; metin araması için okunamayan listesindeki bağlantıları OCR yapan bir araçla (ör. web_fetch) okuyun." if any(o.get("taranmis") for o in okunamayan) else None),
         }
