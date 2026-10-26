@@ -1,0 +1,11 @@
+[project]
+name = "yargucu-yargi"
+version = "1.0.0"
+description = "YARGUCU için Yargı MCP sunucusu (yargi-mcp paketini bulutta çalıştırır)"
+requires-python = ">=3.11"
+dependencies = [
+  "yargi-mcp==0.2.2",
+  "fastmcp==3.4.4",
+  "mcp==1.28.1",
+  "pydantic==2.13.4",
+]
