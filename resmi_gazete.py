@@ -232,8 +232,27 @@ async def _doc_text(client, url: str) -> dict:
 
 # ---------------- Belgeyi biçimiyle getirme (yan panel için) ----------------
 _KEEP = {"b", "strong", "i", "em", "u", "sup", "sub", "br"}
-MAX_IMG = 1_500_000
-MAX_IMG_TOTAL = 6_000_000
+MAX_IMG = 3_000_000          # kaynaktaki tek görselin en büyük boyutu
+MAX_IMG_TOTAL = 900_000      # bir yanıtta dönen (küçültülmüş) görsellerin toplamı
+IMG_MAX_W = 1200
+
+
+def _shrink(data: bytes, ct: str) -> tuple[bytes, str]:
+    """Görseli yan panel için küçültür (en çok 1200 px genişlik, JPEG); okunamıyorsa olduğu gibi döner."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(data))
+        if getattr(im, "is_animated", False):
+            return data, ct
+        im = im.convert("RGB")
+        if im.width > IMG_MAX_W:
+            im = im.resize((IMG_MAX_W, int(im.height * IMG_MAX_W / im.width)))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=74, optimize=True)
+        out = buf.getvalue()
+        return (out, "image/jpeg") if len(out) < len(data) else (data, ct)
+    except Exception:
+        return data, ct
 
 
 def _real_url(u: str) -> str:
@@ -293,7 +312,7 @@ async def _img_data(client, src: str, base: str, budget: list) -> Optional[str]:
         r = await _get(client, full.replace("http://", "https://", 1))
     except Exception:
         return None
-    if r.status_code >= 400 or len(r.content) > MAX_IMG or budget[0] + len(r.content) > MAX_IMG_TOTAL:
+    if r.status_code >= 400 or len(r.content) > MAX_IMG:
         return None
     ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
     if not ct.startswith("image/"):
@@ -301,17 +320,40 @@ async def _img_data(client, src: str, base: str, budget: list) -> Optional[str]:
         ct = {"png": "image/png", "gif": "image/gif", "jpg": "image/jpeg", "jpeg": "image/jpeg", "bmp": "image/bmp"}.get(ext, "")
         if not ct:
             return None
-    budget[0] += len(r.content)
-    return f"data:{ct};base64," + base64.b64encode(r.content).decode("ascii")
+    data, ct = await asyncio.to_thread(_shrink, r.content, ct)
+    if budget[0] + len(data) > MAX_IMG_TOTAL and budget[0] > 0:
+        budget.append("dolu")
+        return None
+    budget[0] += len(data)
+    return f"data:{ct};base64," + base64.b64encode(data).decode("ascii")
 
 
-async def _html_blocks(client, html: str, base: str, images: bool) -> list[dict]:
+async def _html_blocks(client, html: str, base: str, images: bool, img_start: int = 0, img_count: int = 4, info: Optional[dict] = None) -> list[dict]:
+    """Sayfayı bloklara çevirir. Görseller sırayla numaralanır; yalnızca [img_start, img_start+img_count) aralığındakiler
+    getirilir (kur/DİBS tabloları gibi çok görselli sayfalar parça parça istenir). info'ya toplam görsel sayısı yazılır."""
+    from bs4 import Comment, Declaration, CData, ProcessingInstruction, Doctype
     soup = BeautifulSoup(html, "html.parser")
     for s in soup(["script", "style", "noscript", "head", "title", "meta", "link"]):
         s.decompose()
+    # Word'ün koşullu yorumları (<!--[if gte vml 1]>…) ve <![if !vml]> bildirimleri metne karışmasın
+    for c in soup.find_all(string=lambda t: isinstance(t, (Comment, Declaration, CData, ProcessingInstruction, Doctype))):
+        c.extract()
     blocks: list[dict] = []
     budget = [0]
     body = soup.body or soup
+    seen = [0]
+    nxt: list = [None]
+    _orig_img = _img_data
+
+    async def _img_data_w(client_, src, base_, budget_):  # pencere dışındaki görseller sayılır ama getirilmez
+        i = seen[0]
+        seen[0] += 1
+        if not images or i < img_start or i >= img_start + img_count or nxt[0] is not None:
+            return None
+        d = await _orig_img(client_, src, base_, budget_)
+        if d is None and "dolu" in budget_:
+            nxt[0] = i  # yanıt boyutu doldu: kalan görseller sonraki istekte
+        return d
 
     async def walk(node):
         for ch in list(getattr(node, "children", [])):
@@ -323,8 +365,8 @@ async def _html_blocks(client, html: str, base: str, images: bool) -> list[dict]
                 continue
             if name in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
                 for im in ch.find_all("img"):
-                    if images:
-                        d = await _img_data(client, im.get("src") or "", base, budget)
+                    if True:
+                        d = await _img_data_w(client, im.get("src") or "", base, budget)
                         if d:
                             blocks.append({"t": "img", "src": d, "w": im.get("width"), "h": im.get("height")})
                 h = _inline(ch)
@@ -339,16 +381,16 @@ async def _html_blocks(client, html: str, base: str, images: bool) -> list[dict]
                 # sayfa düzeni için kullanılan tek hücreli tablolar: içini düz blok olarak işle
                 if rows and max(len(r) for r in rows) == 1:
                     await walk(ch)
-                elif rows:
-                    blocks.append({"t": "table", "rows": rows[:400]})
-                for im in ch.find_all("img"):
-                    if images:
-                        d = await _img_data(client, im.get("src") or "", base, budget)
+                else:
+                    if rows:
+                        blocks.append({"t": "table", "rows": rows[:400]})
+                    for im in ch.find_all("img"):
+                        d = await _img_data_w(client, im.get("src") or "", base, budget)
                         if d:
                             blocks.append({"t": "img", "src": d})
             elif name == "img":
-                if images:
-                    d = await _img_data(client, ch.get("src") or "", base, budget)
+                if True:
+                    d = await _img_data_w(client, ch.get("src") or "", base, budget)
                     if d:
                         blocks.append({"t": "img", "src": d, "w": ch.get("width"), "h": ch.get("height")})
             elif name in ("br", "hr"):
@@ -357,6 +399,9 @@ async def _html_blocks(client, html: str, base: str, images: bool) -> list[dict]
                 await walk(ch)
 
     await walk(body)
+    if info is not None:
+        info["gorsel_toplam"] = seen[0]
+        info["sonraki"] = nxt[0] if nxt[0] is not None else min(seen[0], img_start + img_count)
     return blocks
 
 
@@ -369,7 +414,12 @@ def _pdf_pages(data: bytes, start: int, count: int, scale: float) -> tuple[list[
     out = []
     for i in range(start, min(n, start + count)):
         page = pdf[i]
-        img = page.render(scale=scale).to_pil().convert("RGB")
+        # küçük sayfalı ilan PDF'leri de okunaklı olsun: genişlik ~1240 px'e gelecek ölçek (en az verilen ölçek, en çok 4)
+        try:
+            sc = min(4.0, max(scale, 1240.0 / float(page.get_width())))
+        except Exception:
+            sc = scale
+        img = page.render(scale=sc).to_pil().convert("RGB")
         if img.width > 1400:
             img = img.resize((1400, int(img.height * 1400 / img.width)))
         buf = io.BytesIO()
@@ -463,8 +513,12 @@ def register(mcp) -> None:
                         text = ""
                 return {"url": real, "tur": "pdf", "sayfa_sayisi": n, "sayfalar": pages, "devami_var": sayfa + adet < n, "metin": text}
             html = _decode(r)
-            blocks = await _html_blocks(c, html, real, gorseller)
-        return {"url": real, "tur": "html", "bloklar": blocks, "gorsel": sum(1 for b in blocks if b["t"] == "img")}
+            info: dict = {}
+            blocks = await _html_blocks(c, html, real, gorseller, sayfa, adet, info)
+        toplam = info.get("gorsel_toplam", 0)
+        return {"url": real, "tur": "html", "bloklar": blocks, "gorsel": sum(1 for b in blocks if b["t"] == "img"),
+                "gorsel_toplam": toplam, "gorsel_baslangic": sayfa, "gorsel_sonraki": info.get("sonraki", toplam),
+                "devami_var": bool(gorseller) and info.get("sonraki", toplam) < toplam}
 
     @mcp.tool(
         name="resmi_gazete_tara",
