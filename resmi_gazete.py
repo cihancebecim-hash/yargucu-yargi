@@ -213,7 +213,7 @@ def _looks_garbage(text: str) -> bool:
 
 
 async def _doc_text(client, url: str) -> dict:
-    url = _check_url(url)
+    url = _real_url(url)
     r = await _get(client, url)
     if r.status_code >= 400:
         raise RuntimeError(f"HTTP {r.status_code}")
@@ -228,6 +228,154 @@ async def _doc_text(client, url: str) -> dict:
         s.decompose()
     text = "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
     return {"url": url, "metin": text, "sayfa": None}
+
+
+# ---------------- Belgeyi biçimiyle getirme (yan panel için) ----------------
+_KEEP = {"b", "strong", "i", "em", "u", "sup", "sub", "br"}
+MAX_IMG = 1_500_000
+MAX_IMG_TOTAL = 6_000_000
+
+
+def _real_url(u: str) -> str:
+    """main.aspx?home=...&main=... biçimindeki ilan bağlantısından asıl sayfayı çıkarır."""
+    p = urlparse(u)
+    if p.path.lower().endswith("main.aspx"):
+        from urllib.parse import parse_qs
+        q = parse_qs(p.query)
+        if q.get("main"):
+            return _check_url(q["main"][0])
+    return _check_url(u)
+
+
+def _inline(node) -> str:
+    """Yalnızca kalın/italik/altı çizili/üst-alt simge ve satır sonu korunur; diğer etiketler metne dönüşür."""
+    from html import escape
+    out = []
+    for ch in node.children:
+        name = getattr(ch, "name", None)
+        if name is None:
+            out.append(escape(" ".join(str(ch).split(" ")).replace("\r", " ").replace("\n", " ")))
+        elif name == "br":
+            out.append("<br>")
+        elif name in _KEEP:
+            tag = {"strong": "b", "em": "i"}.get(name, name)
+            inner = _inline(ch)
+            if inner.strip():
+                out.append(f"<{tag}>{inner}</{tag}>")
+        elif name == "img":
+            continue
+        else:
+            out.append(_inline(ch))
+    html = "".join(out)
+    html = re.sub(r"[ \t ]+", " ", html)
+    html = re.sub(r"</b>\s*<b>", " ", html)
+    return html.strip()
+
+
+def _align(el) -> str:
+    st = (el.get("style") or "").lower().replace(" ", "")
+    al = (el.get("align") or "").lower()
+    if "text-align:center" in st or al == "center":
+        return "center"
+    if "text-align:right" in st or al == "right":
+        return "right"
+    return ""
+
+
+async def _img_data(client, src: str, base: str, budget: list) -> Optional[str]:
+    import base64
+    if src.startswith("data:"):
+        return src if len(src) < MAX_IMG * 1.4 else None
+    full = urljoin(base, src)
+    if not (urlparse(full).hostname or "").lower().endswith("resmigazete.gov.tr"):
+        return None
+    try:
+        r = await _get(client, full.replace("http://", "https://", 1))
+    except Exception:
+        return None
+    if r.status_code >= 400 or len(r.content) > MAX_IMG or budget[0] + len(r.content) > MAX_IMG_TOTAL:
+        return None
+    ct = r.headers.get("content-type", "").split(";")[0].strip().lower()
+    if not ct.startswith("image/"):
+        ext = full.rsplit(".", 1)[-1].lower()
+        ct = {"png": "image/png", "gif": "image/gif", "jpg": "image/jpeg", "jpeg": "image/jpeg", "bmp": "image/bmp"}.get(ext, "")
+        if not ct:
+            return None
+    budget[0] += len(r.content)
+    return f"data:{ct};base64," + base64.b64encode(r.content).decode("ascii")
+
+
+async def _html_blocks(client, html: str, base: str, images: bool) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
+    for s in soup(["script", "style", "noscript", "head", "title", "meta", "link"]):
+        s.decompose()
+    blocks: list[dict] = []
+    budget = [0]
+    body = soup.body or soup
+
+    async def walk(node):
+        for ch in list(getattr(node, "children", [])):
+            name = getattr(ch, "name", None)
+            if name is None:
+                t = " ".join(str(ch).split())
+                if t and getattr(node, "name", "") in ("body", "div", "td", "center", "form", "span", "font"):
+                    blocks.append({"t": "p", "a": "", "h": t})
+                continue
+            if name in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
+                for im in ch.find_all("img"):
+                    if images:
+                        d = await _img_data(client, im.get("src") or "", base, budget)
+                        if d:
+                            blocks.append({"t": "img", "src": d, "w": im.get("width"), "h": im.get("height")})
+                h = _inline(ch)
+                if re.sub(r"<[^>]+>|&nbsp;|\s", "", h):
+                    blocks.append({"t": "p", "a": _align(ch) or _align(ch.parent) if ch.parent else "", "h": h})
+            elif name == "table":
+                rows = []
+                for tr in ch.find_all("tr"):
+                    cells = [_inline(td) for td in tr.find_all(["td", "th"], recursive=False)]
+                    if any(re.sub(r"<[^>]+>|\s", "", c) for c in cells):
+                        rows.append(cells)
+                # sayfa düzeni için kullanılan tek hücreli tablolar: içini düz blok olarak işle
+                if rows and max(len(r) for r in rows) == 1:
+                    await walk(ch)
+                elif rows:
+                    blocks.append({"t": "table", "rows": rows[:400]})
+                for im in ch.find_all("img"):
+                    if images:
+                        d = await _img_data(client, im.get("src") or "", base, budget)
+                        if d:
+                            blocks.append({"t": "img", "src": d})
+            elif name == "img":
+                if images:
+                    d = await _img_data(client, ch.get("src") or "", base, budget)
+                    if d:
+                        blocks.append({"t": "img", "src": d, "w": ch.get("width"), "h": ch.get("height")})
+            elif name in ("br", "hr"):
+                continue
+            else:
+                await walk(ch)
+
+    await walk(body)
+    return blocks
+
+
+def _pdf_pages(data: bytes, start: int, count: int, scale: float) -> tuple[list[dict], int]:
+    import base64
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(data)
+    n = len(pdf)
+    out = []
+    for i in range(start, min(n, start + count)):
+        page = pdf[i]
+        img = page.render(scale=scale).to_pil().convert("RGB")
+        if img.width > 1400:
+            img = img.resize((1400, int(img.height * 1400 / img.width)))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=72, optimize=True)
+        out.append({"no": i + 1, "src": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii"), "w": img.width, "h": img.height})
+    return out, n
 
 
 def _snippets(text: str, word: str, limit: int = 2, width: int = 160) -> list[str]:
@@ -282,6 +430,41 @@ def register(mcp) -> None:
         doc["metin"] = full[baslangic: baslangic + uzunluk]
         doc["devami_var"] = baslangic + uzunluk < len(full)
         return doc
+
+
+    @mcp.tool(
+        name="resmi_gazete_belge",
+        description=(
+            "Resmî Gazete'deki bir düzenlemeyi ya da ilanı yayımlandığı biçimiyle getirir: HTM sayfalarda paragraf sırası, "
+            "ortalama, kalın yazı, tablolar ve gömülü görseller (harita, kroki) korunur; PDF'lerde sayfalar görüntü olarak döner "
+            "(sayfa ile sonraki sayfaları iste). Yalnızca resmigazete.gov.tr adresleri; ilanlardaki main.aspx bağlantıları da açılır."
+        ),
+    )
+    async def resmi_gazete_belge(
+        url: Annotated[str, Field(description="resmigazete.gov.tr'deki düzenleme veya ilan adresi")],
+        sayfa: Annotated[int, Field(description="PDF'de başlanacak sayfa (0'dan)", ge=0)] = 0,
+        adet: Annotated[int, Field(description="PDF'de döndürülecek sayfa sayısı (en çok 4)", ge=1, le=4)] = 3,
+        gorseller: Annotated[bool, Field(description="HTM sayfadaki görselleri de getir")] = True,
+    ) -> dict:
+        real = _real_url(url)
+        async with _client() as c:
+            r = await _get(c, real)
+            if r.status_code >= 400:
+                raise RuntimeError(f"HTTP {r.status_code}: {real}")
+            ctype = r.headers.get("content-type", "").lower()
+            if real.lower().endswith(".pdf") or "pdf" in ctype:
+                pages, n = await asyncio.to_thread(_pdf_pages, r.content, sayfa, adet, 1.5)
+                text = ""
+                if sayfa == 0:
+                    try:
+                        t, _ = await asyncio.to_thread(_pdf_text, r.content)
+                        text = "" if _looks_garbage(t) else t[:60000]
+                    except Exception:
+                        text = ""
+                return {"url": real, "tur": "pdf", "sayfa_sayisi": n, "sayfalar": pages, "devami_var": sayfa + adet < n, "metin": text}
+            html = _decode(r)
+            blocks = await _html_blocks(c, html, real, gorseller)
+        return {"url": real, "tur": "html", "bloklar": blocks, "gorsel": sum(1 for b in blocks if b["t"] == "img")}
 
     @mcp.tool(
         name="resmi_gazete_tara",

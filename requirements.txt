@@ -2,3 +2,5 @@ yargi-mcp==0.2.2
 fastmcp==3.4.4
 mcp==1.28.1
 pydantic==2.13.4
+pypdfium2>=4.30
+pillow>=10
