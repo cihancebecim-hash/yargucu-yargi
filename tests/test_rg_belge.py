@@ -102,3 +102,32 @@ def test_canli_sayfa_iskeleti(parser, monkeypatch):
     ps = [b["h"] for b in B if b["t"] == "p"]
     for beklenen in ["<b>YÖNETMELİK</b>", "<b>BİRİNCİ BÖLÜM</b>", "<b>Amaç</b>", "<b>Kapsam</b>"]:
         assert beklenen in ps, (beklenen, ps[:6])
+
+
+def test_br_ile_ayrilmis_govde(monkeypatch):
+    """Gövde paragrafları <p> değil yalnız <br> ile ayrılmışsa da satırlara bölünür."""
+    govde = "<br>".join(["Türk Mühendis ve Mimar Odaları Birliği Harita ve Kadastro Mühendisleri Odasından:", "<b>BİRİNCİ BÖLÜM</b>", "<b>Amaç</b>"]
+                        + [f"<b>MADDE {i}-</b>(1) " + "uzun madde metni " * 20 for i in range(1, 6)])
+    html = ("<html><body><table><tr><td>5 Kasım 2026 PERŞEMBE</td><td><b>Resmî Gazete</b></td><td>Sayı : 33421</td></tr>"
+            "<tr><td colspan=3><b>YÖNETMELİK</b></td></tr><tr><td colspan=3>" + govde + "</td></tr></table></body></html>")
+    for parser in ("html5lib", "html.parser"):
+        monkeypatch.setattr(rgm, "_parser", lambda p=parser: p)
+        B = asyncio.run(rgm._html_blocks(None, html, "https://www.resmigazete.gov.tr/x.htm", images=False))
+        ps = [b["h"] for b in B if b["t"] == "p"]
+        assert "<b>BİRİNCİ BÖLÜM</b>" in ps and "<b>Amaç</b>" in ps and sum(p.startswith("<b>MADDE") for p in ps) == 5, ps[:5]
+
+
+def test_salt_okunur_klasorde_gecici_depo(monkeypatch, tmp_path):
+    from pathlib import Path
+    from kaynak import depo as dm
+    monkeypatch.delenv("KAYNAK_DB", raising=False)
+    gercek = Path.mkdir
+
+    def salt_okunur(self, *a, **k):
+        if self.name == "veri" and "yargucu-kaynak" not in str(self):
+            raise OSError(30, "Read-only file system")
+        return gercek(self, *a, **k)
+    monkeypatch.setattr(Path, "mkdir", salt_okunur)
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    d = dm.Depo()
+    assert d.yol.startswith(str(tmp_path))

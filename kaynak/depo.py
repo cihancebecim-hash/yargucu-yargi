@@ -78,7 +78,7 @@ def bugun_tr() -> date:
 
 class Depo:
     def __init__(self, yol: Optional[str] = None):
-        self.yol = yol or os.environ.get("KAYNAK_DB", str(Path(__file__).resolve().parent.parent / "veri" / "kaynak.db"))
+        self.yol = yol or os.environ.get("KAYNAK_DB") or _varsayilan_yol()
         if self.yol != ":memory:":
             Path(self.yol).parent.mkdir(parents=True, exist_ok=True)
         self._kilit = threading.RLock()
@@ -240,6 +240,21 @@ class Depo:
                 self._db.backup(dst)
             finally:
                 dst.close()
+
+
+def _varsayilan_yol() -> str:
+    """Kod klasörü yazılabilirse onun yanındaki veri/ klasörü; salt okunur barındırmada (ör. Prefect Horizon)
+    geçici klasör. Geçici klasördeki depo her yeniden başlatmada tohumdan kurulur; kalıcı kayıt için KAYNAK_DB verin."""
+    import tempfile
+    yerel = Path(__file__).resolve().parent.parent / "veri"
+    try:
+        yerel.mkdir(parents=True, exist_ok=True)
+        deneme = yerel / ".yazma-denemesi"
+        deneme.write_text("1")
+        deneme.unlink()
+        return str(yerel / "kaynak.db")
+    except OSError:
+        return str(Path(tempfile.gettempdir()) / "yargucu-kaynak" / "kaynak.db")
 
 
 def _tarih_kontrol(s: str) -> None:
