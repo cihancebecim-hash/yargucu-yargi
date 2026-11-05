@@ -409,7 +409,10 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                 # sayfa düzeni tablosu: hücresinde başka tablo varsa veya tek sütunluysa,
                 # içi tablo olarak değil, yayımlandığı sırayla düz bloklar olarak işlenir
                 # belge gövdesinin tek hücreye yazıldığı düzen tablosu: hücrede iç tablo ya da çok paragraflı uzun metin
-                duzen = any(td.find("table") is not None or (len(td.find_all(["p", "div"])) >= 3 and len(td.get_text(" ", strip=True)) > 600) for td in own_tds)
+                duzen = any(td.find("table") is not None
+                            or (len(td.find_all(["p", "div"])) >= 3 and len(td.get_text(" ", strip=True)) > 600)
+                            or len(td.get_text(" ", strip=True)) > 1500  # veri tablolarında bu uzunlukta hücre olmaz
+                            for td in own_tds)
                 if duzen:
                     # düzen tablosu satır satır: çok hücreli, içinde blok olmayan satır (künye) tablo olarak kalır; diğerleri paragraflara ayrılır
                     for tr in own_trs:
@@ -420,7 +423,12 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                                 blocks.append({"t": "table", "rows": [cells]})
                         else:
                             for td in tds:
-                                await walk_one(td)
+                                if td.find(_BLOK):
+                                    await walk_one(td)
+                                else:  # paragraflar yalnız <br> ile ayrılmışsa satır satır ayır
+                                    for parca in re.split(r"(?:\s*<br>\s*)+", _inline(td)):
+                                        if re.sub(r"<[^>]+>|&nbsp;|\s", "", parca):
+                                            blocks.append({"t": "p", "a": _align(td), "h": parca.strip()})
                 elif rows and max(len(r) for r in rows) == 1:
                     await walk(ch)
                 else:
