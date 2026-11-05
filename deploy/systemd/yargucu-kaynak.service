@@ -1,0 +1,18 @@
+[Unit]
+Description=YARGUCU Kaynak Motoru günlük toplama (Resmî Gazete, TCMB, EVDS, bekçi)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=yargucu
+Group=yargucu
+WorkingDirectory=/opt/yargucu/yargucu-yargi
+EnvironmentFile=/etc/yargucu/ortam
+ExecStart=/opt/yargucu/venv/bin/python -m kaynak gunluk
+SuccessExitStatus=1
+TimeoutStartSec=1800
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yargucu

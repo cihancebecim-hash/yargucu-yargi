@@ -1,0 +1,11 @@
+[Unit]
+Description=YARGUCU veritabanı yedeği (30 gün saklanır)
+
+[Service]
+Type=oneshot
+User=yargucu
+Group=yargucu
+WorkingDirectory=/opt/yargucu/yargucu-yargi
+EnvironmentFile=/etc/yargucu/ortam
+ExecStart=/bin/sh -c '/opt/yargucu/venv/bin/python -m kaynak yedek /var/lib/yargucu/yedek/kaynak-$(date +%%Y%%m%%d).db && find /var/lib/yargucu/yedek -name "kaynak-*.db" -mtime +30 -delete'
+ReadWritePaths=/var/lib/yargucu

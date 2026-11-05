@@ -1,7 +1,7 @@
 [project]
 name = "yargucu-yargi"
-version = "1.0.0"
-description = "YARGUCU için Yargı MCP sunucusu (yargi-mcp paketini bulutta çalıştırır)"
+version = "2.0.0"
+description = "YARGUCU kendi MCP sunucusu: yargı araçları, Resmî Gazete ve Kaynak Motoru"
 requires-python = ">=3.11"
 dependencies = [
   "yargi-mcp==0.2.2",
@@ -10,4 +10,10 @@ dependencies = [
   "pydantic==2.13.4",
   "pypdfium2>=4.30",
   "pillow>=10",
+  "httpx==0.28.1",
+  "beautifulsoup4==4.15.0",
+  "pytesseract==0.3.13",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]

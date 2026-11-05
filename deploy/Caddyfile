@@ -1,0 +1,16 @@
+# /etc/caddy/Caddyfile — ALAN_ADI'nı kendi alan adınızla değiştirin. HTTPS sertifikası kendiliğinden alınır.
+ALAN_ADI {
+	encode gzip
+	# Yalnız gizli MCP yolu dışarı açılır; diğer her istek 404 döner.
+	@mcp path MCP_YOL MCP_YOL/*
+	handle @mcp {
+		reverse_proxy 127.0.0.1:8710
+	}
+	handle {
+		respond 404
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

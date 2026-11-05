@@ -1,0 +1,18 @@
+# /etc/yargucu/ortam  (izinler: 600, sahibi yargucu)
+# MCP adresindeki gizli yol: en az 32 rastgele karakter. claude.ai'ye bağlarken URL: https://ALAN_ADI/<MCP_YOL>
+MCP_YOL=/mcp-BURAYA-RASTGELE-UZUN-DIZE
+MCP_HOST=127.0.0.1
+MCP_PORT=8710
+KAYNAK_DB=/var/lib/yargucu/kaynak.db
+# Onay işlemleri için yönetici anahtarı (en az 16 karakter; kimseyle paylaşmayın)
+YONETICI_ANAHTARI=BURAYA-RASTGELE-ANAHTAR
+# TCMB EVDS API anahtarı (evds2.tcmb.gov.tr → Profil → API Anahtarı)
+EVDS_ANAHTARI=
+# Bildirim (isteğe bağlı): e-posta
+SMTP_SUNUCU=
+SMTP_PORT=587
+SMTP_KULLANICI=
+SMTP_SIFRE=
+BILDIRIM_EPOSTA=
+# Bildirim (isteğe bağlı): web kancası
+BILDIRIM_WEBHOOK=

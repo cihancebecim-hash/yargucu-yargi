@@ -1,0 +1,10 @@
+{
+  "_aciklama": "EVDS seri kodları. Kod boşsa o seri EVDS'ten çekilmez. Bir kod ancak 'python -m kaynak evds-kalibre' ile geçmiş doğrulanmış verilerle birebir eşleşirse kullanılır. Kodları evds2.tcmb.gov.tr → Veri → ilgili seri → 'Seri Kodu' alanından alın.",
+  "tufe_aylik":  {"kod": "TP.FG.J0", "donusum": "aylik_degisim", "frekans": "aylik", "not": "TÜFE genel endeks; TÜİK baz yılı değişirse kalibrasyon düşer ve yeni kod girilmelidir"},
+  "tufe_yillik": {"kod": "TP.FG.J0", "donusum": "yillik_degisim", "frekans": "aylik", "not": "TÜFE genel endeks"},
+  "ufe_aylik":   {"kod": "TP.TUFE1YI.T1", "donusum": "aylik_degisim", "frekans": "aylik", "not": "Yİ-ÜFE genel endeks"},
+  "ufe_yillik":  {"kod": "TP.TUFE1YI.T1", "donusum": "yillik_degisim", "frekans": "aylik", "not": "Yİ-ÜFE genel endeks"},
+  "tcmb_reeskont": {"kod": "", "donusum": "seviye", "frekans": "gunluk", "basamakli": true, "not": "Reeskont oranı serisinin kodunu girin"},
+  "tcmb_avans":    {"kod": "", "donusum": "seviye", "frekans": "gunluk", "basamakli": true, "not": "Avans oranı serisinin kodunu girin"},
+  "mevduat_ort1ay": {"kod": "", "donusum": "seviye", "frekans": "haftalik", "not": "1 aya kadar vadeli TL mevduat ağırlıklı ortalama faiz (haftalık akım) kodunu girin"}
+}

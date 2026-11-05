@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+veri/
+.pytest_cache/

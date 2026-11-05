@@ -1,0 +1,14 @@
+[Unit]
+Description=YARGUCU Kaynak Motoru zamanlayıcısı (Türkiye saatiyle 00:20, 07:05, 10:35, 14:05, 18:05)
+
+[Timer]
+OnCalendar=*-*-* 00:20:00 Europe/Istanbul
+OnCalendar=*-*-* 07:05:00 Europe/Istanbul
+OnCalendar=*-*-* 10:35:00 Europe/Istanbul
+OnCalendar=*-*-* 14:05:00 Europe/Istanbul
+OnCalendar=*-*-* 18:05:00 Europe/Istanbul
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

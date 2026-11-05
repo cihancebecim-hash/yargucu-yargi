@@ -1,16 +1,24 @@
-"""YARGUCU için Yargı MCP sunucusu.
+"""YARGUCU kendi MCP sunucusu.
 
-Kod, PyPI'daki açık kaynak (MIT lisanslı) yargi-mcp paketinden gelir:
-https://pypi.org/project/yargi-mcp/  (Said Sürücü)
-Bu dosya paketteki FastMCP sunucusunu bulut dağıtımı için dışarı açar ve
-YARGUCU'ya özgü Resmî Gazete araçlarını (resmi_gazete.py) ekler.
+- Yargı araçları: PyPI'daki açık kaynak (MIT lisanslı) yargi-mcp paketi (Said Sürücü).
+- Resmî Gazete araçları: resmi_gazete.py (resmigazete.gov.tr'den doğrudan).
+- Kaynak Motoru: kaynak/ (oran ve tarifelerin doğrulanmış, tarihe bağlı deposu).
+
+Çalıştırma (kendi sunucunuzda):  python main.py   → MCP_HOST:MCP_PORT/MCP_YOL
 """
+import os
+
 from mcp_server_main import app
 import resmi_gazete
+from kaynak import mcp_araclari
 
 resmi_gazete.register(app)
+mcp_araclari.register(app)
 
-mcp = app  # FastMCP Cloud / Horizon giriş noktası: main.py:mcp
+mcp = app  # FastMCP giriş noktası: main.py:mcp
 
 if __name__ == "__main__":
-    app.run()
+    app.run(transport="http",
+            host=os.environ.get("MCP_HOST", "127.0.0.1"),
+            port=int(os.environ.get("MCP_PORT", "8710")),
+            path=os.environ.get("MCP_YOL", "/mcp"))
