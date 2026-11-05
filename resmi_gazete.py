@@ -300,9 +300,14 @@ def _inline_list(children) -> str:
                 out.append(f"<{tag}>{inner}</{tag}>")
         elif name == "img":
             continue
+        elif name in ("p", "div", "li", "tr"):
+            inner = _inline(ch)
+            if inner.strip():
+                out.append(inner + "<br>")  # hücre içindeki paragraflar alt alta kalsın
         else:
             out.append(_inline(ch))
     html = "".join(out)
+    html = re.sub(r"(?:\s*<br>)+\s*$", "", html)
     html = re.sub(r"[ \t ]+", " ", html)
     html = re.sub(r"</b>\s*<b>", " ", html)
     return html.strip()
@@ -393,13 +398,18 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                 if re.sub(r"<[^>]+>|&nbsp;|\s", "", h):
                     blocks.append({"t": "p", "a": _align(ch) or _align(ch.parent) if ch.parent else "", "h": h})
             elif name == "table":
+                # yalnız bu tablonun kendi satır ve hücreleri (iç içe tablolar ayrıca işlenir)
+                own_trs = [tr for tr in ch.find_all("tr") if tr.find_parent("table") is ch]
+                own_tds = [td for tr in own_trs for td in tr.find_all(["td", "th"], recursive=False)]
                 rows = []
-                for tr in ch.find_all("tr"):
+                for tr in own_trs:
                     cells = [_inline(td) for td in tr.find_all(["td", "th"], recursive=False)]
                     if any(re.sub(r"<[^>]+>|\s", "", c) for c in cells):
                         rows.append(cells)
-                # sayfa düzeni için kullanılan tek hücreli tablolar: içini düz blok olarak işle
-                if rows and max(len(r) for r in rows) == 1:
+                # sayfa düzeni tablosu: hücresinde başka tablo varsa veya tek sütunluysa,
+                # içi tablo olarak değil, yayımlandığı sırayla düz bloklar olarak işlenir
+                duzen = any(td.find("table") is not None for td in own_tds)
+                if duzen or (rows and max(len(r) for r in rows) == 1):
                     await walk(ch)
                 else:
                     if rows:
@@ -415,6 +425,17 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                         blocks.append({"t": "img", "src": d, "w": ch.get("width"), "h": ch.get("height")})
             elif name in ("br", "hr"):
                 continue
+            elif name in ("td", "th", "div", "center", "blockquote"):
+                if ch.find(_BLOK):
+                    await mixed(ch)  # içinde paragraf/tablo var: sırayla ayrı bloklar
+                else:
+                    for im in ch.find_all("img"):
+                        d = await _img_data_w(client, im.get("src") or "", base, budget)
+                        if d:
+                            blocks.append({"t": "img", "src": d, "w": im.get("width"), "h": im.get("height")})
+                    h = _inline(ch)
+                    if re.sub(r"<[^>]+>|&nbsp;|\s", "", h):
+                        blocks.append({"t": "p", "a": _align(ch), "h": h})
             else:
                 await walk(ch)
 
