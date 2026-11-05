@@ -1,0 +1,11 @@
+{
+  "_aciklama": "Değeri otomatik okunamayan seriler için izlenen resmî sayfalar. url boşsa izlenmez; kurulumda resmî sayfanın adresini girin. 'secici' sayfanın yalnız ilgili bölümünü izlemek için CSS seçicisidir (isteğe bağlı).",
+  "sayfalar": [
+    {"seri": "kk_azami", "url": "", "secici": "", "not": "TCMB → Kredi Kartı İşlemlerinde Uygulanacak Azami Faiz Oranları sayfası"},
+    {"seri": "mevduat_azami", "url": "", "secici": "", "not": "TCMB → Bankalarca Mevduatlara Fiilen Uygulanan Azami Faiz Oranları"},
+    {"seri": "ttk1530", "url": "", "secici": "", "not": "TCMB → TTK Md. 1530 Kapsamında Uygulanacak Faiz Oranı"},
+    {"seri": "kidem_tavan", "url": "", "secici": "", "not": "Hazine ve Maliye Bakanlığı / ÇSGB kıdem tazminatı tavanı duyurusu"},
+    {"seri": "ptt_tebligat", "url": "", "secici": "", "not": "PTT tebligat ücret tarifesi sayfası"},
+    {"seri": "vekalet_pulu", "url": "", "secici": "", "not": "TBB vekâlet pulu duyuruları"}
+  ]
+}

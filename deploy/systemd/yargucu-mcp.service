@@ -1,0 +1,22 @@
+[Unit]
+Description=YARGUCU MCP sunucusu (yargı araçları, Resmî Gazete, Kaynak Motoru)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=yargucu
+Group=yargucu
+WorkingDirectory=/opt/yargucu/yargucu-yargi
+EnvironmentFile=/etc/yargucu/ortam
+ExecStart=/opt/yargucu/venv/bin/python main.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/yargucu
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target

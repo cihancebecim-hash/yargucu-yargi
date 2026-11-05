@@ -1,0 +1,9 @@
+[Unit]
+Description=YARGUCU günlük yedek
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Europe/Istanbul
+Persistent=true
+
+[Install]
+WantedBy=timers.target
