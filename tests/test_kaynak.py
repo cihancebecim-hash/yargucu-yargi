@@ -313,6 +313,7 @@ def test_mcp_araclari(monkeypatch, tmp_path):
     from kaynak import mcp_araclari
     monkeypatch.setenv("KAYNAK_DB", str(tmp_path / "k.db"))
     monkeypatch.setenv("YONETICI_ANAHTARI", "dogru-anahtar-1234567")
+    monkeypatch.setenv("MCP_YONETIM", "1")
     mcp_araclari._DEPO = None
     app = FastMCP("test")
     mcp_araclari.register(app)
@@ -377,3 +378,27 @@ def test_izleyici_sayfa_degisince_alarm(depo, monkeypatch, tmp_path):
     icerik["v"] = icerik["v"].replace("3,25", "3,10")
     assert run(bir_kez()) == {"kk_azami": "degisti"}
     assert any(a["anahtar"].startswith("izleyici_degisti:kk_azami") for a in depo.acik_alarmlar())
+
+
+
+def test_mcp_yonetim_varsayilan_kapali(monkeypatch, tmp_path):
+    from kaynak import mcp_araclari
+    monkeypatch.delenv("MCP_YONETIM", raising=False)
+    monkeypatch.setenv("YONETICI_ANAHTARI", "dogru-anahtar-1234567")
+    with pytest.raises(PermissionError):
+        mcp_araclari._yonetici("dogru-anahtar-1234567")
+
+
+def test_komut_satiri_elle_giris_ve_onay(tmp_path, monkeypatch, capsys):
+    from kaynak.__main__ import main
+    monkeypatch.setenv("KAYNAK_DB", str(tmp_path / "k.db"))
+    main(["elle", "vekalet_pulu", "2027-01-01", "190", "https://www.barobirlik.org.tr", "TBB duyurusu"])
+    out = json.loads(capsys.readouterr().out)
+    assert out["sonuc"] == "bekliyor"
+    with pytest.raises(ValueError):
+        main(["onayla", str(out["id"])])  # onaylayan adı zorunlu
+    main(["onayla", str(out["id"]), "Av.", "Cihan", "CEBECİ"])
+    capsys.readouterr()
+    d = Depo(str(tmp_path / "k.db"))
+    assert d.onayli("vekalet_pulu", "2027-03-01")["deger"] == 190
+    assert d.onayli("vekalet_pulu", "2026-12-31")["deger"] == 164

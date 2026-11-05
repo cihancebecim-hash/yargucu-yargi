@@ -6,6 +6,8 @@ MCP_PORT=8710
 KAYNAK_DB=/var/lib/yargucu/kaynak.db
 # Onay işlemleri için yönetici anahtarı (en az 16 karakter; kimseyle paylaşmayın)
 YONETICI_ANAHTARI=BURAYA-RASTGELE-ANAHTAR
+# MCP üzerinden onay araçları (1 = açık). Kapalı tutun: anahtar sohbet geçmişine girer.
+MCP_YONETIM=0
 # TCMB EVDS API anahtarı (evds2.tcmb.gov.tr → Profil → API Anahtarı)
 EVDS_ANAHTARI=
 # Bildirim (isteğe bağlı): e-posta

@@ -8,6 +8,11 @@
   izle           Yalnız sayfa değişikliği izleyicisi
   bekci          Yalnız bekçi ve bildirim
   durum          Açık alarmlar ve onay bekleyenler
+  bekleyenler    Onay bekleyen değerler (önceki değerle birlikte)
+  onayla ID AD   Bekleyen değeri onaylar (AD: onaylayan kişi)
+  reddet ID AD   Bekleyen değeri reddeder
+  elle SERİ TARİH DEĞER URL [AÇIKLAMA]
+                 Resmî kaynaktan okunan değeri girer (ayrıca 'onayla' gerekir)
   yedek HEDEF    Veritabanının tutarlı yedeği
 """
 from __future__ import annotations
@@ -46,6 +51,20 @@ def main(argv: list[str]) -> int:
         r = {"bekci": bekci.calistir(d), "bildirim": bildirim.gonder(d)}
     elif k == "durum":
         r = {"alarmlar": d.acik_alarmlar(), "bekleyenler": d.bekleyenler(), "kaynaklar": d.saglik()}
+    elif k == "bekleyenler":
+        from .seriler import SERILER
+        r = [{**x, "ad": SERILER[x["seri"]].ad, "onceki": (d.onayli(x["seri"], x["yururluk"]) or {}).get("deger")} for x in d.bekleyenler()]
+    elif k in ("onayla", "reddet"):
+        from .mcp_araclari import karar_ver
+        r = karar_ver(d, int(argv[1]), k, " ".join(argv[2:]))
+    elif k == "elle":
+        from .mcp_araclari import elle_gir
+        deger = argv[3]
+        try:
+            deger = json.loads(deger)
+        except ValueError:
+            pass
+        r = elle_gir(d, argv[1], argv[2], deger, argv[4], " ".join(argv[5:]))
     elif k == "yedek":
         d.yedekle(argv[1])
         r = {"yedek": argv[1]}

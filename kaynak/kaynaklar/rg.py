@@ -61,7 +61,7 @@ async def topla(depo: Depo, gun: date, client=None) -> dict:
         for seri, k in tespitler:
             ad = SERILER[seri].ad
             depo.alarm(f"rg:{seri}:{k['url']}", "uyari",
-                       f"Resmî Gazete {gun:%d.%m.%Y}: '{k['baslik']}' yayımlandı ({ad}). Yeni değerler girilip onaylanana kadar hesaplar önceki tarifeyle yapılır ve ekranda uyarı gösterilir. Bağlantı: {k['url']}")
+                       f"Resmî Gazete {gun:%d.%m.%Y}: '{k['baslik']}' yayımlandı ({ad}). Yeni değerler girilip onaylanana kadar Kaynak Motoru önceki tarifeyi 'güncel değil' uyarısıyla verir. Bağlantı: {k['url']}")
             if seri == "gecikme_zammi":
                 await _gecikme_zammi_adayi(depo, client, gun, k)
         return {"tarih": gun.isoformat(), "durum": "tamam", "sayi": [s.get("sayi") for s in sayilar], "tespit": [{"seri": s, "baslik": k["baslik"]} for s, k in tespitler]}

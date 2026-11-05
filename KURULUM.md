@@ -60,8 +60,16 @@ Bundan sonra Prefect Horizon'daki eski sunucuyu kapatabilirsiniz.
 
 - Toplama günde beş kez kendiliğinden çalışır. Sorun yoksa sizden hiçbir şey beklenmez.
 - **Otomatik onaylananlar:** İki bağımsız kaynağın aynı değeri verdiği oranlar (ör. reeskont oranı). Size "yeni değer onaylandı" bilgisi gelir.
-- **Onayınızı bekleyenler:** Yeni harç tebliği, AAÜT, bilirkişi tarifesi gibi tablolar ve tek kaynaktan gelen değerler. Size alarm gelir. Claude'a "Kaynak Motoru'nda onay bekleyenleri göster" dediğinizde liste ve önceki değerle karşılaştırma gelir. Resmî Gazete'deki tabloya bakıp onaylarsınız.
-- Onaylanmayan yeni bir tarife hesaplara girmez. Hesaplar önceki tarifeyle yapılır ve uygulama bunu açıkça uyarır.
+- **Onayınızı bekleyenler:** Yeni harç tebliği, AAÜT, bilirkişi tarifesi gibi tablolar ve tek kaynaktan gelen değerler. Size alarm gelir. Onay sunucuda yapılır; yönetici anahtarı sohbet geçmişine girmesin diye MCP üzerinden onay varsayılan olarak kapalıdır:
+  ```bash
+  Y="sudo -u yargucu env $(grep -v '^#' /etc/yargucu/ortam | xargs) /opt/yargucu/venv/bin/python -m kaynak"
+  $Y bekleyenler                     # liste, önceki değerle birlikte
+  $Y onayla 42 Av. Cihan CEBECİ      # Resmî Gazete'deki tabloyla karşılaştırdıktan sonra
+  $Y reddet 43 Av. Cihan CEBECİ
+  $Y elle vekalet_pulu 2027-01-01 190 https://www.barobirlik.org.tr "TBB 2027 duyurusu"   # sonra ayrıca onayla
+  ```
+  Tablo tarifeleri (harç, AAÜT…) için `elle` komutuna değer olarak JSON verilir. İstemezseniz bunu Claude'a yaptırabilirsiniz: değerleri Claude Resmî Gazete'den okur ve komutu hazırlar, siz yalnız kontrol edip çalıştırırsınız.
+- Onaylanmayan bir değer hiçbir sorguda dönmez: `oran_getir` önceki değeri verir ve yanında `guncel: false` ile uyarıyı döndürür.
 
 ## 6. Bakım
 

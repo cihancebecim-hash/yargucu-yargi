@@ -27,6 +27,9 @@ def depo() -> Depo:
 
 
 def _yonetici(anahtar: str) -> None:
+    if os.environ.get("MCP_YONETIM") != "1":
+        raise PermissionError("Onay işlemleri güvenlik için MCP üzerinden kapalı. Sunucuda: python -m kaynak bekleyenler / onayla / reddet / elle "
+                              "(veya /etc/yargucu/ortam içinde MCP_YONETIM=1 ile açın; bu durumda anahtar sohbet geçmişinde görünür).")
     beklenen = os.environ.get("YONETICI_ANAHTARI", "")
     if len(beklenen) < 16:
         raise PermissionError("Sunucuda YONETICI_ANAHTARI tanımlı değil (en az 16 karakter); onay işlemleri kapalı.")
@@ -39,6 +42,47 @@ def _tazelik(d: Depo, seri_id: str) -> dict:
     acik = [a["mesaj"] for a in d.acik_alarmlar()
             if seri_id in a["anahtar"].split(":") and a["seviye"] != "bilgi" and not a["anahtar"].startswith("eskime:")]
     return {"guncel": sorun is None and not acik, "uyarilar": ([sorun] if sorun else []) + acik[:3]}
+
+
+
+def elle_gir(d: Depo, seri: str, yururluk: str, deger: Any, kaynak_url: str, aciklama: str = "") -> dict:
+    """Elle girilen değer doğrulamadan geçer ve her zaman ayrı bir onay adımı bekler."""
+    if not str(kaynak_url).startswith("https://"):
+        raise ValueError("Resmî kaynak bağlantısı (https://) zorunlu")
+    s = SERILER.get(seri)
+    if not s:
+        raise ValueError("Bilinmeyen seri: " + seri)
+    if s.tur == "sayi" and isinstance(deger, str):
+        try:
+            deger = float(deger.strip().replace(".", "").replace(",", ".")) if "," in deger else float(deger.strip())
+        except ValueError:
+            raise ValueError("Sayı bekleniyordu: " + deger) from None
+    if s.tur == "tablo" and isinstance(deger, str):
+        import json as _j
+        deger = _j.loads(deger)
+    r = aday_isle(d, seri, yururluk, deger, "elle", kaynak_url, aciklama)
+    if r["sonuc"] == "aday":  # elle girilen değer otomatik onaylanmaz
+        with d.islem() as db:
+            db.execute("UPDATE deger SET durum='bekliyor' WHERE id=?", (r["id"],))
+        r["sonuc"] = "bekliyor"
+    return r
+
+
+def karar_ver(d: Depo, kayit_id: int, karar: str, kisi: str) -> dict:
+    if karar not in ("onayla", "reddet"):
+        raise ValueError("karar 'onayla' veya 'reddet' olmalı")
+    if not kisi.strip():
+        raise ValueError("Onaylayan kişinin adı zorunlu")
+    r = d.karar(kayit_id, "onayli" if karar == "onayla" else "reddedildi", kisi.strip())
+    d.alarm_kapat(f"onay:{r['seri']}:{r['yururluk']}")
+    d.alarm_kapat(f"tek:{r['seri']}:{r['yururluk']}")
+    if karar == "onayla":
+        d.alarm_kapat(f"cakisma:{r['seri']}:{r['yururluk']}")
+        for t in d.rg_tespitler("yeni"):
+            if t["seri"] == r["seri"]:
+                d.rg_tespit_durum(t["id"], "islendi")
+                d.alarm_kapat(f"rg:{t['seri']}:{t['url']}")
+    return r
 
 
 def register(mcp) -> None:
@@ -117,19 +161,7 @@ def register(mcp) -> None:
         onaylayan: Annotated[str, Field(description="Onaylayan kişinin adı")],
     ) -> dict:
         _yonetici(yonetici_anahtari)
-        if karar not in ("onayla", "reddet"):
-            raise ValueError("karar 'onayla' veya 'reddet' olmalı")
-        d = depo()
-        r = d.karar(kayit_id, "onayli" if karar == "onayla" else "reddedildi", onaylayan)
-        d.alarm_kapat(f"onay:{r['seri']}:{r['yururluk']}")
-        d.alarm_kapat(f"tek:{r['seri']}:{r['yururluk']}")
-        if karar == "onayla":
-            d.alarm_kapat(f"cakisma:{r['seri']}:{r['yururluk']}")
-            for t in d.rg_tespitler("yeni"):
-                if t["seri"] == r["seri"]:
-                    d.rg_tespit_durum(t["id"], "islendi")
-                    d.alarm_kapat(f"rg:{t['seri']}:{t['url']}")
-        return {"kayit": r}
+        return {"kayit": karar_ver(depo(), kayit_id, karar, onaylayan)}
 
     @mcp.tool(name="oran_elle_gir", description="Resmî kaynaktan okunan bir değeri elle girer (yönetici). Girilen değer doğrulamadan geçer ve ayrı bir adımda oran_karar ile onaylanmadıkça kullanılmaz.")
     async def oran_elle_gir(
@@ -141,15 +173,8 @@ def register(mcp) -> None:
         aciklama: Annotated[str, Field(description="Hangi tablodan/maddeden alındığı")] = "",
     ) -> dict:
         _yonetici(yonetici_anahtari)
-        if not kaynak_url.startswith("https://"):
-            raise ValueError("Resmî kaynak bağlantısı (https://) zorunlu")
-        d = depo()
-        r = aday_isle(d, seri, yururluk, deger, "elle", kaynak_url, aciklama)
-        if r["sonuc"] == "aday":  # elle girilen değer otomatik onaylanmaz
-            with d.islem() as db:
-                db.execute("UPDATE deger SET durum='bekliyor' WHERE id=?", (r["id"],))
-            r["sonuc"] = "bekliyor"
-        return r
+        return elle_gir(depo(), seri, yururluk, deger, kaynak_url, aciklama)
+
 
     @mcp.tool(name="rg_arsiv", description="Kaynak Motoru'nun arşivlediği Resmî Gazete fihristi (verilen gün).")
     async def rg_arsiv(tarih: Annotated[Optional[str], Field(description="YYYY-AA-GG; boşsa bugün")] = None) -> dict:

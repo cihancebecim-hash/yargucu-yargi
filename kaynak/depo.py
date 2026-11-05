@@ -82,7 +82,7 @@ class Depo:
         if self.yol != ":memory:":
             Path(self.yol).parent.mkdir(parents=True, exist_ok=True)
         self._kilit = threading.RLock()
-        self._db = sqlite3.connect(self.yol, check_same_thread=False, isolation_level=None)
+        self._db = sqlite3.connect(self.yol, check_same_thread=False, isolation_level=None, timeout=30)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(SEMA)
