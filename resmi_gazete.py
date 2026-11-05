@@ -223,7 +223,7 @@ async def _doc_text(client, url: str) -> dict:
         if len(text.strip()) < 40 or _looks_garbage(text):
             return {"url": url, "metin": "", "sayfa": pages, "taranmis": True, "uyari": "Taranmış PDF: metin katmanı yok veya okunamıyor; OCR gerekir"}
         return {"url": url, "metin": text, "sayfa": pages}
-    soup = BeautifulSoup(_decode(r), "html.parser")
+    soup = BeautifulSoup(_decode(r), _parser())
     for s in soup(["script", "style", "noscript"]):
         s.decompose()
     text = "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
@@ -266,11 +266,28 @@ def _real_url(u: str) -> str:
     return _check_url(u)
 
 
+def _parser() -> str:
+    """Tarayıcıyla aynı ayrıştırma (html5lib): Word'den çıkan, kapanmamış <p> etiketli Resmî Gazete
+    sayfalarında paragrafların iç içe geçip tek bloğa dönüşmesini önler. Yoksa yerleşik ayrıştırıcı."""
+    try:
+        import html5lib  # noqa: F401
+        return "html5lib"
+    except ImportError:
+        return "html.parser"
+
+
+_BLOK = ("p", "div", "table", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "center", "blockquote", "pre")
+
+
 def _inline(node) -> str:
     """Yalnızca kalın/italik/altı çizili/üst-alt simge ve satır sonu korunur; diğer etiketler metne dönüşür."""
+    return _inline_list(list(node.children))
+
+
+def _inline_list(children) -> str:
     from html import escape
     out = []
-    for ch in node.children:
+    for ch in children:
         name = getattr(ch, "name", None)
         if name is None:
             out.append(escape(" ".join(str(ch).split(" ")).replace("\r", " ").replace("\n", " ")))
@@ -332,7 +349,7 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
     """Sayfayı bloklara çevirir. Görseller sırayla numaralanır; yalnızca [img_start, img_start+img_count) aralığındakiler
     getirilir (kur/DİBS tabloları gibi çok görselli sayfalar parça parça istenir). info'ya toplam görsel sayısı yazılır."""
     from bs4 import Comment, Declaration, CData, ProcessingInstruction, Doctype
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, _parser())
     for s in soup(["script", "style", "noscript", "head", "title", "meta", "link"]):
         s.decompose()
     # Word'ün koşullu yorumları (<!--[if gte vml 1]>…) ve <![if !vml]> bildirimleri metne karışmasın
@@ -363,7 +380,10 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                 if t and getattr(node, "name", "") in ("body", "div", "td", "center", "form", "span", "font"):
                     blocks.append({"t": "p", "a": "", "h": t})
                 continue
-            if name in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
+            if name in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li") and ch.find(_BLOK):
+                # bozuk HTML: paragrafın içine başka bloklar girmiş; satır içi parçaları ayrı paragraf yap, blokları ayrıca işle
+                await mixed(ch)
+            elif name in ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li"):
                 for im in ch.find_all("img"):
                     if True:
                         d = await _img_data_w(client, im.get("src") or "", base, budget)
@@ -397,6 +417,29 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                 continue
             else:
                 await walk(ch)
+
+    async def mixed(node):
+        buf: list = []
+
+        def flush():
+            h = _inline_list(buf)
+            if re.sub(r"<[^>]+>|&nbsp;|\s", "", h):
+                blocks.append({"t": "p", "a": _align(node), "h": h})
+            buf.clear()
+
+        for ch in list(node.children):
+            if getattr(ch, "name", None) in _BLOK or (getattr(ch, "name", None) and ch.find(_BLOK)):
+                flush()
+                await walk_one(ch)
+            else:
+                buf.append(ch)
+        flush()
+
+    async def walk_one(ch):
+        holder = type("H", (), {})()
+        holder.children = [ch]
+        holder.name = "div"
+        await walk(holder)
 
     await walk(body)
     if info is not None:
