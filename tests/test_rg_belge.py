@@ -78,3 +78,27 @@ def test_veri_tablosu_tablo_kalir(monkeypatch):
         monkeypatch.setattr(rgm, "_parser", lambda p=parser: p)
         B = asyncio.run(rgm._html_blocks(None, html, "https://www.resmigazete.gov.tr/x.htm", images=False))
         assert [b["t"] for b in B] == ["table"] and len(B[0]["rows"]) == 2 and B[0]["rows"][1][2] == "732,00" and B[0]["rows"][0][0] == "1.<br>Başvurma harcı", B
+
+
+# Canlı sayfanın gerçek iskeleti (5.11.2026/33421): tek tablo; 1. satır 3 hücreli künye, 2. satır tür, 3. satır tüm gövde
+CANLI = ("<html><body><table><tr><td>5 Kasım 2026 PERŞEMBE</td><td><b>Resmî Gazete</b></td><td>Sayı : 33421</td></tr>"
+         "<tr><td colspan=3 align=center><b>YÖNETMELİK</b></td></tr><tr><td colspan=3>"
+         "<p>Türk Mühendis ve Mimar Odaları Birliği Harita ve Kadastro Mühendisleri Odasından:</p>"
+         "<p align=center><b>TÜRK MÜHENDİS VE MİMAR ODALARI BİRLİĞİ HARİTA VE KADASTRO MÜHENDİSLERİ ODASI EĞİTİM VE BELGELENDİRME MERKEZİ YÖNETMELİĞİ</b></p>"
+         "<p align=center><b>BİRİNCİ BÖLÜM</b></p><p align=center><b>Başlangıç Hükümleri</b></p><p><b>Amaç</b></p>"
+         "<p><b>MADDE 1-</b>(1) Bu Yönetmeliğin amacı; " + "çalışma esaslarına ilişkin usul ve esasları düzenlemektir. " * 8 + "</p>"
+         "<p><b>Kapsam</b></p><p><b>MADDE 2-</b>(1) Bu Yönetmelik; " + "tüm faaliyet alanlarını kapsar. " * 8 + "</p>"
+         "</td></tr></table></body></html>")
+
+
+@pytest.mark.parametrize("parser", ["html5lib", "html.parser"])
+def test_canli_sayfa_iskeleti(parser, monkeypatch):
+    if parser == "html5lib":
+        pytest.importorskip("html5lib")
+    monkeypatch.setattr(rgm, "_parser", lambda: parser)
+    B = asyncio.run(rgm._html_blocks(None, CANLI, "https://www.resmigazete.gov.tr/eskiler/2026/11/20261105-2.htm", images=False))
+    assert not any(b["t"] == "table" and any(len(c) > 300 for r in b["rows"] for c in r) for b in B), B
+    assert B[0] == {"t": "table", "rows": [["5 Kasım 2026 PERŞEMBE", "<b>Resmî Gazete</b>", "Sayı : 33421"]]}, B[0]  # künye başta, tek satır
+    ps = [b["h"] for b in B if b["t"] == "p"]
+    for beklenen in ["<b>YÖNETMELİK</b>", "<b>BİRİNCİ BÖLÜM</b>", "<b>Amaç</b>", "<b>Kapsam</b>"]:
+        assert beklenen in ps, (beklenen, ps[:6])

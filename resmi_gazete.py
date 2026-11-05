@@ -408,8 +408,20 @@ async def _html_blocks(client, html: str, base: str, images: bool, img_start: in
                         rows.append(cells)
                 # sayfa düzeni tablosu: hücresinde başka tablo varsa veya tek sütunluysa,
                 # içi tablo olarak değil, yayımlandığı sırayla düz bloklar olarak işlenir
-                duzen = any(td.find("table") is not None for td in own_tds)
-                if duzen or (rows and max(len(r) for r in rows) == 1):
+                # belge gövdesinin tek hücreye yazıldığı düzen tablosu: hücrede iç tablo ya da çok paragraflı uzun metin
+                duzen = any(td.find("table") is not None or (len(td.find_all(["p", "div"])) >= 3 and len(td.get_text(" ", strip=True)) > 600) for td in own_tds)
+                if duzen:
+                    # düzen tablosu satır satır: çok hücreli, içinde blok olmayan satır (künye) tablo olarak kalır; diğerleri paragraflara ayrılır
+                    for tr in own_trs:
+                        tds = tr.find_all(["td", "th"], recursive=False)
+                        if len(tds) >= 2 and not any(td.find(_BLOK) for td in tds):
+                            cells = [_inline(td) for td in tds]
+                            if any(re.sub(r"<[^>]+>|\s", "", c) for c in cells):
+                                blocks.append({"t": "table", "rows": [cells]})
+                        else:
+                            for td in tds:
+                                await walk_one(td)
+                elif rows and max(len(r) for r in rows) == 1:
                     await walk(ch)
                 else:
                     if rows:
